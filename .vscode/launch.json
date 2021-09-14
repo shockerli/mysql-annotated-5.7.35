@@ -1,0 +1,30 @@
+{
+    // 使用 IntelliSense 了解相关属性。 
+    // 悬停以查看现有属性的描述。
+    // 欲了解更多信息，请访问: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug mysqld",
+            "program": "${workspaceFolder}/cmake-build-debug/build/sql/mysqld",
+            "args": [
+                "--defaults-file=${workspaceFolder}/cmake-build-debug/etc/my.cnf"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug mysql",
+            "program": "${workspaceFolder}/cmake-build-debug/build/client/mysql",
+            "args": [
+                "-uroot",
+                "-P3307",
+                "-h127.0.0.1"
+            ],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
