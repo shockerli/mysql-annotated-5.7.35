@@ -1,0 +1,242 @@
+# The include statement below is a temp one for tests that are yet to
+#be ported to run with InnoDB,
+#but needs to be kept for tests that would need MyISAM in future.
+--source include/force_myisam_default.inc
+
+#
+# Tests for various concurrency-related aspects of ALTER TABLE implemetation
+#
+# This test takes rather long time so let us run it only in --big-test mode
+--source include/big_test.inc
+# We are using some debug-only features in this test
+--source include/have_debug.inc
+# Also we are using SBR to check that statements are executed
+# in proper order.
+--source include/force_binlog_format_statement.inc
+
+#
+# Test for Bug#25044 ALTER TABLE ... ENABLE KEYS acquires global
+#                    'opening tables' lock
+#
+# ALTER TABLE ... ENABLE KEYS should not acquire LOCK_open mutex for
+# the whole its duration as it prevents other queries from execution.
+--disable_warnings
+drop table if exists t1, t2;
+--enable_warnings
+set debug_sync='RESET';
+
+connect (addconroot, localhost, root,,);
+connect (addconroot2, localhost, root,,);
+connection default;
+create table t1 (n1 int, n2 int, n3 int,
+                key (n1, n2, n3),
+                key (n2, n3, n1),
+                key (n3, n1, n2));
+create table t2 (i int);
+
+alter table t1 disable keys;
+insert into t1 values (1, 2, 3);
+
+# Later we use binlog to check the order in which statements are
+# executed so let us reset it first.
+reset master;
+set debug_sync='alter_table_enable_indexes SIGNAL parked WAIT_FOR go';
+--send alter table t1 enable keys;
+connection addconroot;
+# Wait until ALTER TABLE acquires metadata lock.
+set debug_sync='now WAIT_FOR parked';
+# This statement should not be blocked by in-flight ALTER and therefore
+# should be executed and written to binlog before ALTER TABLE ... ENABLE KEYS
+# finishes.
+insert into t2 values (1);
+# And this should wait until the end of ALTER TABLE ... ENABLE KEYS.
+--send insert into t1 values (1, 1, 1);
+connection addconroot2;
+# Wait until the above INSERT INTO t1 is blocked due to ALTER
+let $wait_condition=
+    select count(*) = 1 from information_schema.processlist
+    where state = "Waiting for table metadata lock" and
+          info = "insert into t1 values (1, 1, 1)";
+--source include/wait_condition.inc
+# Resume ALTER execution.
+set debug_sync='now SIGNAL go';
+connection default;
+--reap
+connection addconroot;
+--reap
+connection default;
+# Check that statements were executed/binlogged in correct order.
+source include/show_binlog_events.inc;
+
+# Clean up
+drop tables t1, t2;
+disconnect addconroot;
+disconnect addconroot2;
+set debug_sync='RESET';
+
+--echo End of 5.0 tests
+
+#
+# Additional coverage for the main ALTER TABLE case
+#
+# We should be sure that table being altered is properly
+# locked during statement execution and in particular that
+# no DDL or DML statement can sneak in and get access to
+# the table when real operation has already taken place
+# but this fact has not been noted in binary log yet.
+--disable_warnings
+drop table if exists t1, t2, t3;
+--enable_warnings
+connect (addconroot, localhost, root,,);
+connect (addconroot2, localhost, root,,);
+connection default;
+create table t1 (i int);
+# We are going to check that statements are logged in correct order
+reset master;
+set debug_sync='alter_table_before_main_binlog SIGNAL parked WAIT_FOR go';
+--send alter table t1 change i c char(10) default 'Test1';
+connection addconroot;
+# Wait until ALTER TABLE acquires metadata lock.
+set debug_sync='now WAIT_FOR parked'; 
+--send insert into t1 values ();
+connection addconroot2;
+# Wait until the above INSERT INTO t1 is blocked due to ALTER
+let $wait_condition=
+    select count(*) = 1 from information_schema.processlist
+    where state = "Waiting for table metadata lock" and
+          info = "insert into t1 values ()";
+--source include/wait_condition.inc
+# Resume ALTER execution.
+set debug_sync='now SIGNAL go';
+connection default;
+--reap
+connection addconroot;
+--reap
+connection default;
+select * from t1;
+set debug_sync='alter_table_before_main_binlog SIGNAL parked WAIT_FOR go';
+--send alter table t1 change c vc varchar(100) default 'Test2';
+connection addconroot;
+# Wait until ALTER TABLE acquires metadata lock.
+set debug_sync='now WAIT_FOR parked';
+--send rename table t1 to t2;
+connection addconroot2;
+# Wait until the above RENAME TABLE is blocked due to ALTER
+let $wait_condition=
+    select count(*) = 1 from information_schema.processlist
+    where state = "Waiting for table metadata lock" and
+          info = "rename table t1 to t2";
+--source include/wait_condition.inc
+# Resume ALTER execution.
+set debug_sync='now SIGNAL go';
+connection default;
+--reap
+connection addconroot;
+--reap
+connection default;
+drop table t2;
+# And now tests for ALTER TABLE with RENAME clause. In this
+# case target table name should be properly locked as well.
+create table t1 (i int);
+set debug_sync='alter_table_before_main_binlog SIGNAL parked WAIT_FOR go';
+--send alter table t1 change i c char(10) default 'Test3', rename to t2;
+connection addconroot;
+# Wait until ALTER TABLE acquires metadata lock.
+set debug_sync='now WAIT_FOR parked';
+--send insert into t2 values();
+connection addconroot2;
+# Wait until the above INSERT INTO t2 is blocked due to ALTER
+let $wait_condition=
+    select count(*) = 1 from information_schema.processlist
+    where state = "Waiting for table metadata lock" and
+           info = "insert into t2 values()";
+--source include/wait_condition.inc
+# Resume ALTER execution.
+set debug_sync='now SIGNAL go';
+connection default;
+--reap
+connection addconroot;
+--reap
+connection default;
+select * from t2;
+--send alter table t2 change c vc varchar(100) default 'Test2', rename to t1;
+connection addconroot;
+connection default;
+--reap
+rename table t1 to t3;
+
+disconnect addconroot;
+disconnect addconroot2;
+drop table t3;
+set debug_sync='alter_table_before_main_binlog SIGNAL parked WAIT_FOR go';
+set debug_sync='RESET';
+
+# Check that all statements were logged in correct order
+source include/show_binlog_events.inc;
+
+
+--echo End of 5.1 tests
+--source include/restore_default_binlog_format.inc
+
+--echo #
+--echo # BUG#29375764: SIMPLE ALTER CAUSE UNNECESSARY INNODB INDEX REBUILDS,
+--echo #               5.7.23 OR LATER 5.7 RLSES
+--echo #
+
+############################################################################
+# In 5.7.22:
+# CREATE DATABASE my_db;
+# CREATE TABLE my_db.t1(i INT PRIMARY KEY, v VARCHAR(9), KEY (v));
+#
+# DATADIR NAME: data_50722
+# zip -r data_50722.zip data_50722
+############################################################################
+
+--echo # Copy the zipped 5.7.22 data directory and unzip it.
+--copy_file $MYSQLTEST_VARDIR/std_data/data_50722.zip $MYSQL_TMP_DIR/data_50722.zip
+--file_exists $MYSQL_TMP_DIR/data_50722.zip
+--exec unzip -qo $MYSQL_TMP_DIR/data_50722.zip -d $MYSQL_TMP_DIR
+
+let $DATADIR_50722 = $MYSQL_TMP_DIR/data_50722;
+let $MYSQLD_LOG = $MYSQL_TMP_DIR/data_50722/my_err.log;
+
+# SHUTDOWN
+--source include/shutdown_mysqld.inc
+
+--echo # Restart the server with the 5.7.22 data directory.
+--exec echo "restart: --datadir=$DATADIR_50722 --log-error=$MYSQLD_LOG --innodb_undo_tablespaces=0" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
+--enable_reconnect
+--source include/wait_until_connected_again.inc
+
+--echo # UPGRADE
+--exec $MYSQL_UPGRADE --skip-verbose --force 2>&1
+
+SET DEBUG="+d, assert_index_def_has_no_pack_flag";
+--echo # Without the patch, an assert is triggered, indicating that index definitions
+--echo # have changed that would result in a index rebuild.
+ALTER TABLE my_db.t1 COMMENT "No index rebuild necessary";
+
+--echo # CLEANUP
+DROP TABLE my_db.t1;
+DROP DATABASE my_db;
+
+# SHUTDOWN
+--source include/shutdown_mysqld.inc
+
+--echo # Remove copied files and directories.
+--remove_file $MYSQL_TMP_DIR/data_50722.zip
+--remove_files_wildcard $DATADIR_50722/sys *
+--remove_files_wildcard $DATADIR_50722/mysql *
+--remove_files_wildcard $DATADIR_50722/performance_schema *
+--remove_files_wildcard $DATADIR_50722/test *
+--remove_files_wildcard $DATADIR_50722 *
+--rmdir $DATADIR_50722/sys
+--rmdir $DATADIR_50722/mysql
+--rmdir $DATADIR_50722/performance_schema
+--rmdir $DATADIR_50722/test
+--rmdir $DATADIR_50722
+
+--echo # Restart server with default options.
+--exec echo "restart:" > $MYSQLTEST_VARDIR/tmp/mysqld.1.expect
+--enable_reconnect
+--source include/wait_until_connected_again.inc

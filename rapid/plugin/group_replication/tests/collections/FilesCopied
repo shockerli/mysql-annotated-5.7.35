@@ -1,0 +1,9 @@
+default.daily
+default.daily-valgrind
+default.experimental
+default.push
+default.release
+default.weekly
+default.weekly-valgrind
+default.weekly.basic
+mysql-5.7-stage.push
