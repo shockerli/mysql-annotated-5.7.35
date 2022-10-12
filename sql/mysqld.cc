@@ -365,6 +365,10 @@ my_bool show_compatibility_56= TRUE;
 ulong slow_start_timeout;
 #endif
 
+/*
+ * 标记服务器初始化
+ * opt_bootstrap已废弃，使用opt_initialize替代
+ */
 my_bool opt_bootstrap= 0;
 my_bool opt_initialize= 0;
 my_bool opt_disable_partition_check= TRUE;
@@ -4439,6 +4443,7 @@ int mysqld_main(int argc, char **argv)
   orig_argv= argv;
   my_getopt_use_args_separator= TRUE;
   my_defaults_read_login_file= FALSE;
+  /* 加载和处理配置文件以及启动参数 */
   if (load_defaults(MYSQL_CONFIG_NAME, load_default_groups, &argc, &argv))
   {
     flush_error_log_messages();
@@ -4465,6 +4470,7 @@ int mysqld_main(int argc, char **argv)
   init_pfs_instrument_array();
 #endif /* WITH_PERFSCHEMA_STORAGE_ENGINE */
 
+  /* 处理参数变量 */
   ho_error= handle_early_options();
 
 #if !defined(_WIN32) && !defined(EMBEDDED_LIBRARY)
@@ -4605,9 +4611,11 @@ int mysqld_main(int argc, char **argv)
     exit (MYSQLD_ABORT_EXIT);
   }
 
+  /* 初始化系统内部变量 */
   if (init_common_variables())
     unireg_abort(MYSQLD_ABORT_EXIT);        // Will do exit
 
+  /* 初始化信号系统 */
   my_init_signals();
 
   size_t guardize= 0;
@@ -4763,6 +4771,7 @@ int mysqld_main(int argc, char **argv)
   Service.SetSlowStarting(slow_start_timeout);
 #endif
 
+  /* 启动系统核心组件，比如存储引擎 */
   if (init_server_components())
     unireg_abort(MYSQLD_ABORT_EXIT);
 
@@ -4934,9 +4943,10 @@ int mysqld_main(int argc, char **argv)
     (void) RUN_HOOK(server_state, after_engine_recovery, (NULL));
   }
 
-
+  /* 初始化SSL */
   if (init_ssl())
     unireg_abort(MYSQLD_ABORT_EXIT);
+  /* 初始化网络 */
   if (network_init())
     unireg_abort(MYSQLD_ABORT_EXIT);
 
@@ -4996,11 +5006,13 @@ int mysqld_main(int argc, char **argv)
 #endif
   }
 
+  /* 初始化状态变量*/
   init_status_vars();
   /* If running with bootstrap, do not start replication. */
   if (opt_bootstrap)
     opt_skip_slave_start= 1;
 
+  /* BINLOG 相关检查和初始化*/
   check_binlog_cache_size(NULL);
   check_binlog_stmt_cache_size(NULL);
 
@@ -5015,6 +5027,7 @@ int mysqld_main(int argc, char **argv)
     /*
       init_slave() must be called after the thread keys are created.
     */
+    /* 如果实例是从机，则初始化从节点 */
     if (server_id != 0)
       init_slave(); /* Ignoring errors while configuring replication. */
   }
@@ -5069,6 +5082,7 @@ int mysqld_main(int argc, char **argv)
 #ifdef _WIN32
   create_shutdown_thread();
 #endif
+  /* 启动连接管理器，创建 handle_manager 线程 */
   start_handle_manager();
 
   create_compress_gtid_table_thread();
@@ -5147,6 +5161,7 @@ int mysqld_main(int argc, char **argv)
   if (opt_daemonize)
     mysqld::runtime::signal_parent(pipe_write_fd,1);
 
+  /* 开始监听客户端连接 */
   mysqld_socket_acceptor->connection_event_loop();
 #endif /* _WIN32 */
   server_operational_state= SERVER_SHUTTING_DOWN;

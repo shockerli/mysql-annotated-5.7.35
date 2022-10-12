@@ -65,6 +65,7 @@ public:
   /**
     Connection acceptor loop to accept connections from clients.
   */
+  /* 循环阻塞监听连接请求，直到收到中止循环的信号 */
   void connection_event_loop()
   {
     Connection_handler_manager *mgr= Connection_handler_manager::get_instance();
