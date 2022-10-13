@@ -279,6 +279,15 @@ int my_search_option_files(const char *conf_file, int *argc, char ***argv,
   if (! is_login_file)
   {
     /* Check if we want to force the use a specific default file */
+    /*
+      查看启动时是否指定了参数参数
+       --defaults-file=#            指定配置文件
+       --defaults-extra-file=#      指定额外配置文件
+       --defaults-group-suffix=#    分组的后缀
+       --login-path=#       从该路径读取登录文件
+       --no-defaults        不从任何配置文件中读取配置项，除了登录文件
+       https://dev.mysql.com/doc/refman/5.7/en/option-file-options.html
+     */
     *args_used+= get_defaults_options(*argc - *args_used, *argv + *args_used,
                                       (char **) &forced_default_file,
                                       (char **) &forced_extra_defaults,
@@ -403,6 +412,7 @@ int my_search_option_files(const char *conf_file, int *argc, char ***argv,
     goto err;
   }
   // If my defaults file is set (from a previous run), we read it
+  /* 如果启动参数中指定了 --defaults-file，则直接打开并读取配置项 */
   else if (my_defaults_file)
   {
     if ((error= search_default_file_with_ext(func, func_ctx, "", "",
@@ -417,6 +427,7 @@ int my_search_option_files(const char *conf_file, int *argc, char ***argv,
       goto err;
     }
   }
+  /* 如果没有指定配置文件，则到默认的搜索目录下去查找配置文件 my.conf */
   else if (! found_no_defaults)
   {
     for (dirs= default_directories ; *dirs; dirs++)
@@ -455,12 +466,14 @@ err:
 
 /*
   The option handler for load_defaults.
+  被 load_defaults() 用于处理默认配置项
 
   SYNOPSIS
     handle_deault_option()
     in_ctx                  Handler context. In this case it is a
                             handle_option_ctx structure.
     group_name              The name of the group the option belongs to.
+                            配置项所属分组的名字
     option                  The very option to be processed. It is already
                             prepared to be used in argv (has -- prefix). If it
                             is NULL, we are handling a new group (section).
@@ -658,6 +671,7 @@ int my_load_defaults(const char *conf_file, const char **groups,
   DBUG_ENTER("load_defaults");
 
   init_alloc_root(key_memory_defaults, &alloc,512,0);
+  /* 初始化默认搜索配置文件的目录列表 */
   if ((dirs= init_default_directories(&alloc)) == NULL)
     goto err;
   /*
@@ -678,6 +692,7 @@ int my_load_defaults(const char *conf_file, const char **groups,
   ctx.m_args= &my_args;
   ctx.group= &group;
 
+  /* 尝试查找和打开配置文件 */
   if ((error= my_search_option_files(conf_file, argc, argv,
                                      &args_used, handle_default_option,
                                      (void *) &ctx, dirs, false, found_no_defaults)))
@@ -792,12 +807,18 @@ static int search_default_file(Process_option_func opt_handler,
 {
   char **ext;
   const char *empty_list[]= { "", 0 };
+  /*
+    根据config_file判断其是否有文件扩展名
+    如果没有指定任何配置文件，那么config_file一般是my，不带扩展名
+   */
   my_bool have_ext= fn_ext(config_file)[0] != 0;
+  /* 如果没有带扩展名，则使用默认的扩展名 .cnf */
   const char **exts_to_use= have_ext ? empty_list : f_extensions;
 
   for (ext= (char**) exts_to_use; *ext; ext++)
   {
     int error;
+    /* 拿着带着扩展名的配置文件，去读取每个配置文件 */
     if ((error= search_default_file_with_ext(opt_handler, handler_ctx,
                                              dir, *ext,
                                              config_file, 0, is_login_file)) < 0)
@@ -880,6 +901,11 @@ static char *get_argument(const char *keyword, size_t kwlen,
      1	File not found (Warning)
 */
 
+/*
+  尝试打开配置文件，并从中读取配置项
+
+  opt_handler:  配置项处理函数，一般是 handle_default_option()
+ */
 static int search_default_file_with_ext(Process_option_func opt_handler,
                                         void *handler_ctx,
                                         const char *dir,
@@ -930,6 +956,7 @@ static int search_default_file_with_ext(Process_option_func opt_handler,
       return 1;                                 /* Ignore wrong files */
   }
 
+  /* 逐行读取 */
   while (mysql_file_getline(buff, sizeof(buff) - 1, fp, is_login_file))
   {
     line++;
@@ -1012,6 +1039,7 @@ static int search_default_file_with_ext(Process_option_func opt_handler,
       continue;
     }
 
+    /* 分组 */
     if (*ptr == '[')				/* Group name */
     {
       found_group=1;
@@ -1140,7 +1168,7 @@ static int search_default_file_with_ext(Process_option_func opt_handler,
   return -1;					/* Fatal error */
 }
 
-
+/* 移除行末注释 */
 static char *remove_end_comment(char *ptr)
 {
   char quote= 0;	/* we are inside quote marks */
@@ -1228,7 +1256,7 @@ static my_bool mysql_file_getline(char *str, int size, MYSQL_FILE *file,
   }
 }
 
-
+/* 打印配置文件中的配置 */
 void my_print_default_files(const char *conf_file)
 {
   const char *empty_list[]= { "", 0 };
@@ -1282,6 +1310,7 @@ void my_print_default_files(const char *conf_file)
   puts("");
 }
 
+/* 帮助信息中打印默认配置说明（比如 mysqld --help --verbose） */
 void print_defaults(const char *conf_file, const char **groups)
 {
   const char **groups_save= groups;
@@ -1401,7 +1430,7 @@ static const char *my_get_module_parent(char *buf, size_t size)
 }
 #endif /* _WIN32 */
 
-
+/* 读取配置文件的默认搜索目录 */
 static const char **init_default_directories(MEM_ROOT *alloc)
 {
   const char **dirs;
@@ -1431,9 +1460,11 @@ static const char **init_default_directories(MEM_ROOT *alloc)
 
 #else
 
+  /* 默认的2个目录 */
   errors += add_directory(alloc, "/etc/", dirs);
   errors += add_directory(alloc, "/etc/mysql/", dirs);
 
+  /* 如果 CMake 构建时指定有参数 -DSYSCONFDIR */
 #if defined(DEFAULT_SYSCONFDIR)
   if (DEFAULT_SYSCONFDIR[0])
     errors += add_directory(alloc, DEFAULT_SYSCONFDIR, dirs);
@@ -1441,6 +1472,7 @@ static const char **init_default_directories(MEM_ROOT *alloc)
 
 #endif
 
+  /* 环境变量 MYSQL_HOME */
   if ((env= getenv("MYSQL_HOME")))
     errors += add_directory(alloc, env, dirs);
 
@@ -1448,6 +1480,7 @@ static const char **init_default_directories(MEM_ROOT *alloc)
   errors += add_directory(alloc, "", dirs);
 
 #if !defined(_WIN32)
+  /* 非Windows系统，用户HOME目录 */
   errors += add_directory(alloc, "~/", dirs);
 #endif
 

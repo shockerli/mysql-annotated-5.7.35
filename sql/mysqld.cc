@@ -4778,6 +4778,7 @@ int mysqld_main(int argc, char **argv)
   /*
     Each server should have one UUID. We will create it automatically, if it
     does not exist.
+    每个服务器都必须有个 UUID，如果配置中没有就自动创建一个
    */
   if (init_server_auto_options())
   {
@@ -5054,6 +5055,9 @@ int mysqld_main(int argc, char **argv)
 
 #ifndef _WIN32
   //  Start signal handler thread.
+  /*
+    开启一个线程，监听程序退出的信号量，收到退出信号，则将 abort_loop 置为 true
+  */
   start_signal_handler();
 #endif
 
