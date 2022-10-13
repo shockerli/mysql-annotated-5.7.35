@@ -51,6 +51,11 @@ static uchar *get_sys_var_length(const sys_var *var, size_t *length,
   return (uchar*) var->name.str;
 }
 
+/*
+  单链表，在 sys_vars.cc 文件中，使用静态构造函数注册，并将其加入到此链表（比如: static Sys_var_charptr Sys_basedir）
+  加入到链表，调用的方法是 sys_var::sys_var
+  支持的系统变量都继承自 sys_var 的变量
+ */
 sys_var_chain all_sys_vars = { NULL, NULL };
 
 int sys_var_init()
@@ -60,11 +65,13 @@ int sys_var_init()
   /* Must be already initialized. */
   assert(system_charset_info != NULL);
 
+  /* 初始化哈希表 */
   if (my_hash_init(&system_variable_hash, system_charset_info, 100, 0,
                    0, (my_hash_get_key) get_sys_var_length, 0, HASH_UNIQUE,
                    PSI_INSTRUMENT_ME))
     goto error;
 
+  /* 将单链表中的系统变量添加到哈希表 */
   if (mysql_add_sys_var_chain(all_sys_vars.first))
     goto error;
 
@@ -130,6 +137,7 @@ void sys_var_end()
   the variable is deprecated but no replacement is offered.
   @param parse_flag either PARSE_EARLY or PARSE_NORMAL
 */
+/* 系统变量注册的构造方法，所有系统变量都会在其静态构造函数中调用此方法，将系统变量添加到链表 */
 sys_var::sys_var(sys_var_chain *chain, const char *name_arg,
                  const char *comment, int flags_arg, ptrdiff_t off,
                  int getopt_id, enum get_opt_arg_type getopt_arg_type,

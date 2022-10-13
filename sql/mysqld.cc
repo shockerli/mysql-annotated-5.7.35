@@ -2323,6 +2323,9 @@ void *my_str_realloc_mysqld(void *ptr, size_t size)
 }
 #endif // !EMBEDDED_LIBRARY
 
+/*
+  从配置文件读取的分组名称列表，mysqld 就是 mysqld、server、带版本号的mysqld（mysqld-5.7）
+ */
 const char *load_default_groups[]= {
 #ifdef WITH_NDBCLUSTER_STORAGE_ENGINE
 "mysql_cluster",
@@ -2785,6 +2788,7 @@ int init_common_variables()
 #ifdef EMBEDDED_LIBRARY
   default_storage_engine= const_cast<char *>("MyISAM");
 #else
+  /* 系统的默认存储引擎的默认值是在这设置的，但也可以通过配置项default_storage_engine指定 */
   default_storage_engine= const_cast<char *>("InnoDB");
 #endif
   default_tmp_storage_engine= default_storage_engine;
@@ -2928,6 +2932,7 @@ int init_common_variables()
   sys_var *var;
 #ifndef EMBEDDED_LIBRARY
   /* Calculate and update default value for thread_cache_size. */
+  /* 根据最大连接数max_connections计算thread_cache_size */
   if ((default_value= 8 + max_connections / 100) > 100)
     default_value= 100;
   var= intern_find_sys_var(STRING_WITH_LEN("thread_cache_size"));
@@ -2967,6 +2972,7 @@ int init_common_variables()
     return 1;
   }
   global_system_variables.lc_messages= my_default_lc_messages;
+  /* 所有错误信息 */
   if (init_errmessage())  /* Read error messages from file */
     return 1;
   init_client_errs();
@@ -3053,6 +3059,7 @@ int init_common_variables()
     return 1;
   global_system_variables.character_set_filesystem= character_set_filesystem;
 
+  /* 词法分析 */
   if (lex_init())
   {
     sql_print_error("Out of memory");
@@ -3074,6 +3081,7 @@ int init_common_variables()
                       "--general-log-file option, log tables are used. "
                       "To enable logging to files use the --log-output=file option.");
 
+  /* 慢查询日志的存储方式 */
   if (opt_slow_log && opt_slow_logname && !(log_output_options & LOG_FILE)
       && !(log_output_options & LOG_NONE))
     sql_print_warning("Although a path was specified for the "
@@ -4470,7 +4478,7 @@ int mysqld_main(int argc, char **argv)
   init_pfs_instrument_array();
 #endif /* WITH_PERFSCHEMA_STORAGE_ENGINE */
 
-  /* 处理参数变量 */
+  /* 处理早期就会被使用到的EARLY系统变量 */
   ho_error= handle_early_options();
 
 #if !defined(_WIN32) && !defined(EMBEDDED_LIBRARY)
@@ -4508,6 +4516,7 @@ int mysqld_main(int argc, char **argv)
 #endif
 
   init_sql_statement_names();
+  /* 初始化系统变量 */
   sys_var_init();
   ulong requested_open_files;
   adjust_related_options(&requested_open_files);
@@ -4611,7 +4620,7 @@ int mysqld_main(int argc, char **argv)
     exit (MYSQLD_ABORT_EXIT);
   }
 
-  /* 初始化系统内部变量 */
+  /* 初始化系统变量 */
   if (init_common_variables())
     unireg_abort(MYSQLD_ABORT_EXIT);        // Will do exit
 
@@ -5485,6 +5494,9 @@ static bool read_init_file(char *file_name)
   The performance schema needs to be initialized as early as possible,
   before to-be-instrumented objects of the server are initialized.
 */
+/*
+  处理一些需要早期就被使用到的配置项，在静态构造函数注册时指定了m_parse_flag等于sys_var::PARSE_EARLY的系统变量，比如Sys_max_connections
+ */
 int handle_early_options()
 {
   int ho_error;
@@ -5496,6 +5508,7 @@ int handle_early_options()
   my_getopt_skip_unknown= TRUE;
 
   /* Add the system variables parsed early */
+  /* 将PARSE_EARLY标记的系统变量添加到all_early_options这个向量中 */
   sys_var_add_options(&all_early_options, sys_var::PARSE_EARLY);
 
   /* Add the command line options parsed early */
@@ -5509,6 +5522,7 @@ int handle_early_options()
   my_getopt_error_reporter= option_error_reporter;
   my_charset_error_reporter= charset_error_reporter;
 
+  // 在命令行参数中查找EARLY配置项，如配置有则为其设置，如果没有找到则会使用默认值
   ho_error= handle_options(&remaining_argc, &remaining_argv,
                            &all_early_options[0], mysqld_get_one_option);
   if (ho_error == 0)
@@ -6818,6 +6832,7 @@ static int show_slave_open_temp_tables(THD *thd, SHOW_VAR *var, char *buf)
 
 /*
   Variables shown by SHOW STATUS in alphabetical order
+  支持的状态变量，可通过 SHOW STATUS 查看
 */
 
 SHOW_VAR status_vars[]= {

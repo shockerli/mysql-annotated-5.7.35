@@ -155,7 +155,7 @@ struct handle_option_ctx
 {
    MEM_ROOT *alloc;
    My_args *m_args;
-   TYPELIB *group;
+   TYPELIB *group; // 配置项分组
 };
 
 static int search_default_file(Process_option_func func, void *func_ctx,
@@ -466,7 +466,7 @@ err:
 
 /*
   The option handler for load_defaults.
-  被 load_defaults() 用于处理默认配置项
+  被 load_defaults() 用于处理默认配置项的 handler
 
   SYNOPSIS
     handle_deault_option()
@@ -498,10 +498,12 @@ static int handle_default_option(void *in_ctx, const char *group_name,
   if (!option)
     return 0;
 
+  /* 只处理匹配的分组 */
   if (find_type((char *)group_name, ctx->group, FIND_TYPE_NO_PREFIX))
   {
     if (!(tmp= (char *) alloc_root(ctx->alloc, strlen(option) + 1)))
       return 1;
+    /* 添加到参数列表中 */
     if (ctx->m_args->push_back(tmp))
       return 1;
     my_stpcpy(tmp, option);
@@ -681,6 +683,7 @@ int my_load_defaults(const char *conf_file, const char **groups,
   if (*argc >= 2 && !strcmp(argv[0][1], "--no-defaults"))
     found_no_defaults= TRUE;
 
+  /* 构建存放分组配置项的对象 */
   group.count=0;
   group.name= "defaults";
   group.type_names= groups;
@@ -688,6 +691,7 @@ int my_load_defaults(const char *conf_file, const char **groups,
   for (; *groups ; groups++)
     group.count++;
 
+  /* 配置项缓存，所有参数都会被缓存到此内存结构中 */
   ctx.alloc= &alloc;
   ctx.m_args= &my_args;
   ctx.group= &group;
@@ -1059,6 +1063,7 @@ static int search_default_file_with_ext(Process_option_func opt_handler,
       strmake(curr_gr, ptr, MY_MIN((size_t) (end-ptr)+1, sizeof(curr_gr)-1));
 
       /* signal that a new group is found */
+      /* 标记找到了新分组，接下来的配置项都将分配到该分组下，故传入的option参数值为NULL */
       opt_handler(handler_ctx, curr_gr, NULL);
 
       continue;
@@ -1077,6 +1082,7 @@ static int search_default_file_with_ext(Process_option_func opt_handler,
     else
       end = ptr + strlen(ptr);
 
+    /* 查找配置项等号后的值*/
     if ((value= strchr(ptr, '=')))
       end= value;				/* Option without argument */
     for ( ; my_isspace(&my_charset_latin1, end[-1]) ; end--)
@@ -1084,6 +1090,7 @@ static int search_default_file_with_ext(Process_option_func opt_handler,
 
     if (!value)
     {
+      /* 无需配置值的配置项（配置了即为TRUE） */
       strmake(my_stpcpy(option,"--"),ptr, (size_t) (end-ptr));
       if (opt_handler(handler_ctx, curr_gr, option))
         goto err;
