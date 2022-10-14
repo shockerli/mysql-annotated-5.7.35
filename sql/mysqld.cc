@@ -3814,25 +3814,32 @@ static int init_server_components()
     We need to call each of these following functions to ensure that
     all things are initialized so that unireg_abort() doesn't fail
   */
+  /* 初始化 MDL(metadata lock) 锁 */
   mdl_init();
+  /* 初始化分区 */
   partitioning_init();
   if (table_def_init() | hostname_cache_init(host_cache_size))
     unireg_abort(MYSQLD_ABORT_EXIT);
 
+  /* 初始化Timer定时器 */
   if (my_timer_initialize())
     sql_print_error("Failed to initialize timer component (errno %d).", errno);
   else
     have_statement_timeout= SHOW_OPTION_YES;
 
+  /* 初始化查询缓存 */
   init_server_query_cache();
 
+  /* 随机器 */
   randominit(&sql_rand,(ulong) server_start_time,(ulong) server_start_time/2);
   setup_fpu();
 #ifdef HAVE_REPLICATION
+  /*如果开启了主从复制，则初始化从节点列表 */
   init_slave_list();
 #endif
 
   /* Setup logs */
+  /* 日志相关 */
 
   /*
     Enable old-fashioned error log, except when the user has requested
@@ -3898,6 +3905,8 @@ static int init_server_components()
   /*
     initialize delegates for extension observers, errors have already
     been reported in the function
+
+    binlog 相关
   */
   if (delegates_init())
     unireg_abort(MYSQLD_ABORT_EXIT);
@@ -4061,12 +4070,14 @@ a file name for --log-bin-index option", opt_binlog_index_name);
   process_key_caches(&ha_init_key_cache);
 
   /* Allow storage engine to give real error messages */
+  /* handler 错误信息注册初始化 */
   if (ha_init_errors())
     DBUG_RETURN(1);
 
   if (opt_ignore_builtin_innodb)
     sql_print_warning("ignore-builtin-innodb is ignored "
                       "and will be removed in future releases.");
+  /* GTID 初始化 */
   if (gtid_server_init())
   {
     sql_print_error("Failed to initialize GTID structures.");
@@ -4082,6 +4093,7 @@ a file name for --log-bin-index option", opt_binlog_index_name);
   tc_log= &tc_log_dummy;
 
   /*Load early plugins */
+  /* 加载early插件(启动参数--early-plugin-load指定的插件 */
   if (plugin_register_early_plugins(&remaining_argc, remaining_argv,
                                     opt_help ?
                                       PLUGIN_INIT_SKIP_INITIALIZATION : 0))
@@ -4090,6 +4102,7 @@ a file name for --log-bin-index option", opt_binlog_index_name);
     unireg_abort(MYSQLD_ABORT_EXIT);
   }
   /* Load builtin plugins, initialize MyISAM, CSV and InnoDB */
+  /* 【核心】加载内置插件，比如MyISAM、InnoDB、CSV等存储引擎 */
   if (plugin_register_builtin_and_init_core_se(&remaining_argc,
                                                remaining_argv))
   {
@@ -4134,6 +4147,7 @@ a file name for --log-bin-index option", opt_binlog_index_name);
   if (tmp_str)
     my_free(tmp_str);
   /* we do want to exit if there are any other unknown options */
+  /* 多余的、不支持的参数 */
   if (remaining_argc > 1)
   {
     int ho_error;
@@ -4177,6 +4191,7 @@ a file name for --log-bin-index option", opt_binlog_index_name);
   }
 
   /* We have to initialize the storage engines before CSV logging */
+  /* 初始化handler */
   if (ha_init())
   {
     sql_print_error("Can't init databases");
@@ -4207,6 +4222,7 @@ a file name for --log-bin-index option", opt_binlog_index_name);
     }
   }
 
+  /* 根据日志配置项，设置日志处理器，慢查询日志、通用查询日志 */
   query_logger.set_handlers(log_output_options);
 
   // Open slow log file if enabled.
@@ -4780,7 +4796,7 @@ int mysqld_main(int argc, char **argv)
   Service.SetSlowStarting(slow_start_timeout);
 #endif
 
-  /* 启动系统核心组件，比如存储引擎 */
+  /* 初始化系统模块，比如MDL、存储引擎、慢查询日志、binlog */
   if (init_server_components())
     unireg_abort(MYSQLD_ABORT_EXIT);
 
@@ -4985,6 +5001,7 @@ int mysqld_main(int argc, char **argv)
   error_handler_hook= my_message_sql;
 
   /* Save pid of this process in a file */
+  /* 将当前进程的PID写入.pid文件 */
   if (!opt_bootstrap)
     create_pid_file();
 
@@ -5177,6 +5194,7 @@ int mysqld_main(int argc, char **argv)
   /* 开始监听客户端连接 */
   mysqld_socket_acceptor->connection_event_loop();
 #endif /* _WIN32 */
+  /* 如果程序abort，那么才朝下走，因为一直在阻塞等待连接。下面的都是程序退出前的收尾工作 */
   server_operational_state= SERVER_SHUTTING_DOWN;
 
   DBUG_PRINT("info", ("No longer listening for incoming connections"));
@@ -5673,6 +5691,7 @@ void adjust_related_options(ulong *requested_open_files)
 
 vector<my_option> all_options;
 
+/* EARLY 配置项列表 */
 struct my_option my_long_early_options[]=
 {
   {"bootstrap", OPT_BOOTSTRAP, "Used by mysql installation scripts.", 0, 0, 0,

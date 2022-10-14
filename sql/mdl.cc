@@ -20,6 +20,7 @@
    along with this program; if not, write to the Free Software Foundation,
    51 Franklin Street, Suite 500, Boston, MA 02110-1335 USA */
 
+/* MDL(metadata lock, 元数据锁) */
 
 #include "mdl.h"
 #include "debug_sync.h"
@@ -135,6 +136,8 @@ static bool mdl_initialized= 0;
 /**
   A collection of all MDL locks. A singleton,
   there is only one instance of the map in the server.
+
+  这是一个存放所有MDL锁的MAP，该MAP在整个SERVER只有一个实例
 */
 
 class MDL_map

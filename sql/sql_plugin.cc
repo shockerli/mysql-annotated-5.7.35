@@ -1654,6 +1654,7 @@ bool plugin_register_dynamic_and_init_all(int *argc,
   init_alloc_root(key_memory_plugin_init_tmp, &tmp_root, 4096, 4096);
 
   /* Register all dynamic plugins */
+  /* 加载所有动态插件（参数--plugin-load指定的插件） */
   if (!(flags & PLUGIN_INIT_SKIP_DYNAMIC_LOADING))
   {
     I_List_iterator<i_string> iter(opt_plugin_load_list);
@@ -1669,6 +1670,7 @@ bool plugin_register_dynamic_and_init_all(int *argc,
 
   /*
     Now we initialize all remaining plugins
+    初始化剩下的插件，并且确保所有插件都初始化成功
   */
   if(plugin_init_initialize_and_reap())
     goto err;
