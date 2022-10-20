@@ -17,6 +17,10 @@
 - 文本注释无法描述清楚，将会以文章的形式发布，并将链接附到相关源码中
 - 特殊原因对源码文件进行改动的将会在此处列出原因
 
+### BREAKPOINT
+对于关键断点，会在注释中以 `BREAKPOINT` 标记📌，可直接搜索该标记以帮助 DEBUG 代码。
+
+
 ### 源码变动日志
 - 重命名 `VERSION` 文件及相关 `CMAKE`，原因及方案见 [MySQL 源码阅读 —— 问题 expanded from macro MYSQL_VERSION_MAJOR](https://shockerli.net/post/mysql-source-version-conflict-in-cpp-11/)
 

@@ -112,7 +112,7 @@ extern void thd_increment_bytes_received(size_t length);
 static my_bool net_write_buff(NET *, const uchar *, size_t);
 
 /** Init with packet info. */
-
+/* 为当前连接初始化网络数据传输相关的参数，并取得连接文件句柄 */
 my_bool my_net_init(NET *net, Vio* vio)
 {
   DBUG_ENTER("my_net_init");

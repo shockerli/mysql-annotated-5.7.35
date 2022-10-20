@@ -1644,10 +1644,13 @@ static bool network_init(void)
   std::string const unix_sock_name("");
 #endif
 
+  // 套接字方式(TCP或UNIX)
   if (!opt_disable_networking || unix_sock_name != "")
   {
     std::string const bind_addr_str(my_bind_addr_str ? my_bind_addr_str : "");
 
+    // socket 监听器
+    // 传入参数：地址、端口、back_log、超时时长、套接字文件
     Mysqld_socket_listener *mysqld_socket_listener=
       new (std::nothrow) Mysqld_socket_listener(bind_addr_str,
                                                 mysqld_port, back_log,
@@ -1656,6 +1659,7 @@ static bool network_init(void)
     if (mysqld_socket_listener == NULL)
       return true;
 
+    // socket 接收器
     mysqld_socket_acceptor=
       new (std::nothrow) Connection_acceptor<Mysqld_socket_listener>(mysqld_socket_listener);
     if (mysqld_socket_acceptor == NULL)
@@ -1665,6 +1669,7 @@ static bool network_init(void)
       return true;
     }
 
+    // 初始化连接接收器
     if (mysqld_socket_acceptor->init_connection_acceptor())
       return true; // mysqld_socket_acceptor would be freed in unireg_abort.
 
@@ -5007,6 +5012,7 @@ int mysqld_main(int argc, char **argv)
 
 
   /* Read the optimizer cost model configuration tables */
+  /* 查询优化成本计算配置 */
   if (!opt_bootstrap)
     reload_optimizer_cost_constants();
 
@@ -8040,6 +8046,7 @@ static int get_options(int *argc_ptr, char ***argv_ptr)
     return 1;
 
 #ifndef EMBEDDED_LIBRARY
+  // 初始化MySQL连接管理器
   if (Connection_handler_manager::init())
   {
     sql_print_error("Could not allocate memory for connection handling");

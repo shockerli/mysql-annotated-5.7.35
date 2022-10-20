@@ -27,7 +27,7 @@
 #include "my_stacktrace.h"              // my_safe_snprintf
 #include "sql_class.h"                  // THD
 
-
+// THD对象在这创建，各子类会额外初始化一些内容
 THD* Channel_info::create_thd()
 {
   DBUG_EXECUTE_IF("simulate_resource_failure", return NULL;);

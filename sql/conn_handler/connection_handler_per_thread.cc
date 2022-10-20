@@ -147,7 +147,9 @@ Channel_info* Per_thread_connection_handler::block_until_new_connection()
     assert( ! _db_is_pushed_());
 
     // Block pthread
+    // 阻塞系统线程(pthread)
     blocked_pthread_count++;
+    // 三种可BREAK阻塞，abort程序中止、等待线程数、KILL线程标志
     while (!abort_loop && !wake_pthread && !kill_blocked_pthreads_flag)
       mysql_cond_wait(&COND_thread_cache, &LOCK_thread_cache);
     blocked_pthread_count--;
@@ -156,9 +158,12 @@ Channel_info* Per_thread_connection_handler::block_until_new_connection()
       mysql_cond_signal(&COND_flush_thread_cache);
     else if (wake_pthread)
     {
+      // 等待线程数-1
       wake_pthread--;
+      // 从等待连接的池子中POP一个连接，然后开始挂靠到当前线程上
       if (!waiting_channel_info_list->empty())
       {
+        // 所以，有闲置线程可用时，连接都是从这来的，并非全部连接都要走创建线程那一步
         new_conn = waiting_channel_info_list->front();
         waiting_channel_info_list->pop_front();
         DBUG_PRINT("info", ("waiting_channel_info_list->pop %p", new_conn));
@@ -176,6 +181,7 @@ Channel_info* Per_thread_connection_handler::block_until_new_connection()
 
 /**
   Construct and initialize a THD object for a new connection.
+  为新连接创建并初始化一个THD对象，返回THD对象都指针
 
   @param channel_info  Channel_info object representing the new connection.
                        Will be destroyed by this function.
@@ -186,6 +192,8 @@ Channel_info* Per_thread_connection_handler::block_until_new_connection()
 
 static THD* init_new_thd(Channel_info *channel_info)
 {
+  // 根据Channel_info创建THD
+  // 如果是TCP方式连接，Channel_info_tcpip_socket的create_thd方法
   THD *thd= channel_info->create_thd();
   if (thd == NULL)
   {
@@ -194,8 +202,10 @@ static THD* init_new_thd(Channel_info *channel_info)
     return NULL;
   }
 
+  // 通过全局线程管理器分配一个新的线程ID
   thd->set_new_thread_id();
 
+  // 线程创建时间、线程启动时间
   thd->start_utime= thd->thr_create_utime= my_micro_time();
   if (channel_info->get_prior_thr_create_utime() != 0)
   {
@@ -234,6 +244,7 @@ static THD* init_new_thd(Channel_info *channel_info)
 
 /**
   Thread handler for a connection
+  [重要]MySQL连接的线程处理器
 
   @param arg   Connection object (Channel_info)
 
@@ -248,6 +259,7 @@ static THD* init_new_thd(Channel_info *channel_info)
 
 extern "C" void *handle_connection(void *arg)
 {
+  // 全局THD管理器
   Global_THD_manager *thd_manager= Global_THD_manager::get_instance();
   Connection_handler_manager *handler_manager=
     Connection_handler_manager::get_instance();
@@ -265,8 +277,10 @@ extern "C" void *handle_connection(void *arg)
     return NULL;
   }
 
+  /* 第一层死循环，为了连接池线程的重用*/
   for (;;)
   {
+    // 根据Channel信息创建一个THD对象
     THD *thd= init_new_thd(channel_info);
     if (thd == NULL)
     {
@@ -276,6 +290,7 @@ extern "C" void *handle_connection(void *arg)
       break; // We are out of resources, no sense in continuing.
     }
 
+    // 重用连接线程
 #ifdef HAVE_PSI_THREAD_INTERFACE
     if (pthread_reused)
     {
@@ -297,26 +312,35 @@ extern "C" void *handle_connection(void *arg)
     /* Save it within THD, so it can be inspected */
     thd->set_psi(psi);
 #endif /* HAVE_PSI_THREAD_INTERFACE */
+    // 为当前系统线程（pthread）分配THD对象
     mysql_thread_set_psi_id(thd->thread_id());
     mysql_thread_set_psi_THD(thd);
     mysql_socket_set_thread_owner(
       thd->get_protocol_classic()->get_vio()->mysql_socket);
 
+    // 将THD添加到全局THD管理器中
     thd_manager->add_thd(thd);
 
+    // 准备连接，以达到处理客户端请求的状态，包含登录验证
     if (thd_prepare_connection(thd))
       handler_manager->inc_aborted_connects();
     else
     {
+      // 死循环开始: 检查客户端连接是否存活可用
       while (thd_connection_alive(thd))
       {
+        // BREAKPOINT
+        // [核心]开始处理客户端发起的命令
+        // 每处理完一条命令，就会循环一次
         if (do_command(thd))
           break;
       }
       end_connection(thd);
     }
+    // 连接失活后，就关闭连接
     close_connection(thd, 0, false, false);
 
+    // 释放资源
     thd->get_stmt_da()->reset_diagnostics_area();
     thd->release_resources();
 
@@ -325,6 +349,7 @@ extern "C" void *handle_connection(void *arg)
     ERR_remove_thread_state(0);
 #endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
 
+    // 将THD从管理器中移除
     thd_manager->remove_thd(thd);
     Connection_handler_manager::dec_connection_count();
 
@@ -336,11 +361,16 @@ extern "C" void *handle_connection(void *arg)
     PSI_THREAD_CALL(delete_current_thread)();
 #endif /* HAVE_PSI_THREAD_INTERFACE */
 
+    // THD对象也删除
     delete thd;
 
+    // 如果全局退出SERVER，那么循环也结束，也就意味着该系统线程也结束
     if (abort_loop) // Server is shutting down so end the pthread.
       break;
 
+    // BREAKPOINT
+    // 回收线程，等待下个连接复用
+    // 然后当前系统线程就一直阻塞在这里，直到有新连接进来或者abort
     channel_info= Per_thread_connection_handler::block_until_new_connection();
     if (channel_info == NULL)
       break;
@@ -356,6 +386,7 @@ extern "C" void *handle_connection(void *arg)
     }
   }
 
+  // 系统线程结束的收尾工作
   my_thread_end();
   my_thread_exit(0);
   return NULL;
@@ -382,12 +413,16 @@ bool Per_thread_connection_handler::check_idle_thread_and_enqueue_connection(
   bool res= true;
 
   mysql_mutex_lock(&LOCK_thread_cache);
+  // 如果阻塞的线程数大于等待线程数，意味着有闲置的线程可用
   if (Per_thread_connection_handler::blocked_pthread_count > wake_pthread)
   {
     DBUG_PRINT("info",("waiting_channel_info_list->push %p", channel_info));
+    // 将该连接放入等待队列中，直到有闲置线程时再取出来建立连接
     waiting_channel_info_list->push_back(channel_info);
+    // 等待线程数+1
     wake_pthread++;
     mysql_cond_signal(&COND_thread_cache);
+    // 返回FALSE，表示不创建新线程
     res= false;
   }
   mysql_mutex_unlock(&LOCK_thread_cache);
@@ -406,6 +441,7 @@ bool Per_thread_connection_handler::add_connection(Channel_info* channel_info)
   // Simulate thread creation for test case before we check thread cache
   DBUG_EXECUTE_IF("fail_thread_create", error= 1; goto handle_error;);
 
+  // 检查是否有闲置的线程可供使用，如果有闲置线程则添加到等待队列中，并直接返回、不再创建线程
   if (!check_idle_thread_and_enqueue_connection(channel_info))
     DBUG_RETURN(false);
 
@@ -413,6 +449,9 @@ bool Per_thread_connection_handler::add_connection(Channel_info* channel_info)
     There are no idle threads avaliable to take up the new
     connection. Create a new thread to handle the connection
   */
+  // 如果没有闲置线程可用，那么就创建个线程来处理该连接
+  // 创建系统线程，并交由handle_connection()方法去处理新线程
+  // channel_info作为参数传递给新线程的handle_connection()
   channel_info->set_prior_thr_create_utime();
   error= mysql_thread_create(key_thread_one_connection, &id,
                              &connection_attrib,
@@ -434,6 +473,7 @@ handle_error:
     DBUG_RETURN(true);
   }
 
+  // 已创建线程数自增+1
   Global_THD_manager::get_instance()->inc_thread_created();
   DBUG_PRINT("info",("Thread created"));
   DBUG_RETURN(false);

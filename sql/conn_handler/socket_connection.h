@@ -76,6 +76,8 @@ typedef std::map<MYSQL_SOCKET, bool, Socket_lt_type>::iterator
   which listen on a default mysqld tcp port or a user specified  port
   via mysqld command-line  and a unix socket which is bind to a mysqld
   defaul pathname.
+  Mysqld_socket_listener 用于监听Socket，接收来自客户端的连接。
+  可以是通过命令行程序mysqld的参数指定的TCP端口，或者指定的 UNIX Socket 文件。
 */
 class Mysqld_socket_listener
 {

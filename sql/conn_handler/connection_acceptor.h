@@ -71,8 +71,10 @@ public:
     Connection_handler_manager *mgr= Connection_handler_manager::get_instance();
     while (!abort_loop)
     {
+      // 监听到新的连接请求
       Channel_info *channel_info= m_listener->listen_for_connection_event();
       if (channel_info != NULL)
+        // 传入连接管理器处理新连接
         mgr->process_new_connection(channel_info);
     }
   }

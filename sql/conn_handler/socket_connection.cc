@@ -359,6 +359,7 @@ public:
     char port_buf[NI_MAXSERV];
     my_snprintf(port_buf, NI_MAXSERV, "%d", m_tcp_port);
 
+    // 判断是否绑定所有IP地址
     if (native_strcasecmp(my_bind_addr_str, MY_BIND_ALL_ADDRESSES) == 0)
     {
       /*
@@ -410,6 +411,7 @@ public:
     }
     else
     {
+      // 绑定指定IP地址
       if (getaddrinfo(m_bind_addr_str.c_str(), port_buf, &hints, &ai))
       {
         sql_print_error("%s: %s", ER_DEFAULT(ER_IPSOCK_ERROR), strerror(errno));
@@ -446,8 +448,10 @@ public:
     */
 
     struct addrinfo *a;
+    // 尝试创建套接字（IPv4）
     MYSQL_SOCKET listener_socket= create_socket(ai, AF_INET, &a);
 
+    // 再尝试创建套接字（IPv6）
     if (mysql_socket_getfd(listener_socket) == INVALID_SOCKET)
       listener_socket= create_socket(ai, AF_INET6, &a);
 
@@ -501,6 +505,9 @@ public:
       Sleep intervals: 1, 2, 4,  6,  9, 13, 17, 22, ...
       Retry at second: 1, 3, 7, 13, 22, 35, 52, 74, ...
       Limit the sequence by m_port_timeout (set --port-open-timeout=#).
+
+      尝试绑定到IP端口上
+      有时停止或重启MySQL时，端口不会立即释放，此处使用多次重试尝试解决
     */
     uint this_wait= 0;
     int ret= 0;
@@ -525,6 +532,7 @@ public:
       return MYSQL_INVALID_SOCKET;
     }
 
+    // 开始监听套接字
     if (mysql_socket_listen(listener_socket, static_cast<int>(m_backlog)) < 0)
     {
       sql_print_error("Can't start server: listen() on TCP/IP port: %s",
@@ -539,6 +547,7 @@ public:
     (void) mysql_sock_set_nonblocking(listener_socket);
 #endif
 
+    // 最后返回套接字
     return listener_socket;
   }
 };
@@ -803,8 +812,11 @@ Mysqld_socket_listener::Mysqld_socket_listener(std::string bind_addr_str,
 bool Mysqld_socket_listener::setup_listener()
 {
   // Setup tcp socket listener
+  // TCP套接字
   if (m_tcp_port)
   {
+    // TCP_socket 实例
+    // 传入绑定地址、端口、超时时长、backlog
     TCP_socket tcp_socket(m_bind_addr_str, m_tcp_port,
                           m_backlog, m_port_timeout);
 
@@ -816,8 +828,11 @@ bool Mysqld_socket_listener::setup_listener()
   }
 #if defined(HAVE_SYS_UN_H)
   // Setup unix socket listener
+  // UNIX套接字
   if (m_unix_sockname != "")
   {
+    // Unix_socket 实例
+    // 传入UNIX套接字文件、backlog
     Unix_socket unix_socket(&m_unix_sockname, m_backlog);
 
     MYSQL_SOCKET mysql_socket= unix_socket.get_listener_socket();
@@ -830,9 +845,11 @@ bool Mysqld_socket_listener::setup_listener()
 #endif /* HAVE_SYS_UN_H */
 
   // Setup for connection events for poll or select
+  // 使用POLL还是SELECT
 #ifdef HAVE_POLL
   int count= 0;
 #endif
+  // 遍历套接字字典（可以同时支持TCP和UNIX两种套接字）
   for (socket_map_iterator_t sock_map_iter=  m_socket_map.begin();
        sock_map_iter != m_socket_map.end(); ++sock_map_iter)
   {
@@ -885,6 +902,7 @@ Channel_info* Mysqld_socket_listener::listen_for_connection_event()
 #ifdef HAVE_POLL
   for (uint i= 0; i < m_socket_map.size(); ++i)
   {
+      // 找到活跃的套接字
     if (m_poll_info.m_fds[i].revents & POLLIN)
     {
       listen_sock= m_poll_info.m_pfs_fds[i];
@@ -911,6 +929,7 @@ Channel_info* Mysqld_socket_listener::listen_for_connection_event()
   for (uint retry= 0; retry < MAX_ACCEPT_RETRY; retry++)
   {
     socket_len_t length= sizeof(struct sockaddr_storage);
+    // 尝试建立连接
     connect_sock= mysql_socket_accept(key_socket_client_connection, listen_sock,
                                       (struct sockaddr *)(&cAddr), &length);
     if (mysql_socket_getfd(connect_sock) != INVALID_SOCKET ||
@@ -984,6 +1003,8 @@ Channel_info* Mysqld_socket_listener::listen_for_connection_event()
   }
 #endif // HAVE_LIBWRAP
 
+  // 根据TCP或UNIX分别创建连接的Channel_info对象
+  // Channel_info用于建立Socket连接后、建立MySQL连接之前，无论创建MySQL连接成功与否都会删除该对象
   Channel_info* channel_info= NULL;
   if (is_unix_socket)
     channel_info= new (std::nothrow) Channel_info_local_socket(connect_sock);
@@ -1000,7 +1021,7 @@ Channel_info* Mysqld_socket_listener::listen_for_connection_event()
   return channel_info;
 }
 
-
+// 关闭连接监听Socket
 void Mysqld_socket_listener::close_listener()
 {
   for (socket_map_iterator_t sock_map_iter=  m_socket_map.begin();

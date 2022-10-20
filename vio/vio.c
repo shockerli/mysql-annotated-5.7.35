@@ -276,7 +276,10 @@ my_bool vio_reset(Vio* vio, enum enum_vio_type type,
 
 
 /* Create a new VIO for socket or TCP/IP connection. */
-
+/*
+  为mysql_socket这个SOCKET套接字创建一个VIO对象，用于处理网络数据传输
+  这个VIO对象会一直伴随THD对象
+ */
 Vio *mysql_socket_vio_new(MYSQL_SOCKET mysql_socket, enum enum_vio_type type, uint flags)
 {
   Vio *vio;

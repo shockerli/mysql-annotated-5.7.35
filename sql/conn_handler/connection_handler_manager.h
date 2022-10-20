@@ -54,6 +54,7 @@ struct THD_event_functions
 class Connection_handler_manager
 {
   // Singleton instance to Connection_handler_manager
+  // 静态变量，存自己的实例，单例模式
   static Connection_handler_manager* m_instance;
 
   static mysql_mutex_t LOCK_connection_count;

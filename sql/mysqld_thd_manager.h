@@ -86,7 +86,9 @@ public:
   remove_thd() removes a THD from the set, and decrements the counter.
   Method remove_thd() also broadcasts COND_thd_list.
 */
-
+/*
+  全局THD对象管理器，所有注册的线程THD对象都在此管理
+ */
 class Global_THD_manager
 {
 public:

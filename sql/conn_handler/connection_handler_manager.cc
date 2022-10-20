@@ -45,6 +45,8 @@ mysql_mutex_t Connection_handler_manager::LOCK_connection_count;
 mysql_cond_t Connection_handler_manager::COND_connection_count;
 #ifndef EMBEDDED_LIBRARY
 Connection_handler_manager* Connection_handler_manager::m_instance= NULL;
+// 默认一个MySQL连接一个线程
+// 该系统变量是可以配置的（thread_handling），在sys_vars.cc文件中
 ulong Connection_handler_manager::thread_handling=
   SCHEDULER_ONE_THREAD_PER_CONNECTION;
 uint Connection_handler_manager::max_threads= 0;
@@ -93,7 +95,8 @@ bool Connection_handler_manager::valid_connection_count()
   return connection_accepted;
 }
 
-
+// 检查是否已达最大连接数，如果超过了则不接受该连接
+// 如果接受连接，则对连接数自增1，并更新历史最大连接数
 bool Connection_handler_manager::check_and_incr_conn_count()
 {
   bool connection_accepted= true;
@@ -150,6 +153,7 @@ bool Connection_handler_manager::init()
   */
   Per_thread_connection_handler::init();
 
+  // 初始化连接处理器（默认是Per_thread_connection_handler）
   Connection_handler *connection_handler= NULL;
   switch (Connection_handler_manager::thread_handling)
   {
@@ -170,6 +174,7 @@ bool Connection_handler_manager::init()
     return true;
   }
 
+  // 初始化连接管理器实例
   m_instance= new (std::nothrow) Connection_handler_manager(connection_handler);
 
   if (m_instance == NULL)
@@ -265,6 +270,7 @@ bool Connection_handler_manager::unload_connection_handler()
 void
 Connection_handler_manager::process_new_connection(Channel_info* channel_info)
 {
+  // 如果循环已中止，或者已超最大连接数，则报错并拒绝连接
   if (abort_loop || !check_and_incr_conn_count())
   {
     channel_info->send_error_and_close_channel(ER_CON_COUNT_ERROR, 0, true);
@@ -272,6 +278,8 @@ Connection_handler_manager::process_new_connection(Channel_info* channel_info)
     return;
   }
 
+  // 向连接处理器添加连接建立
+  // Per_thread_connection_handler::add_connection
   if (m_connection_handler->add_connection(channel_info))
   {
     inc_aborted_connects();

@@ -857,6 +857,7 @@ static void prepare_new_connection_state(THD* thd)
       return;
     }
 
+    /* 执行初始化命令 */
     execute_init_command(thd, &opt_init_connect, &LOCK_sys_init_connect);
 
     if (thd->is_error())
@@ -906,7 +907,9 @@ static void prepare_new_connection_state(THD* thd)
 bool thd_prepare_connection(THD *thd)
 {
   bool rc;
+  // 初始化LEX词法分析器
   lex_start(thd);
+  // 连接身份认证
   rc= login_connection(thd);
 
   if (rc)
@@ -916,6 +919,7 @@ bool thd_prepare_connection(THD *thd)
                          (char *) &thd->security_context()->priv_user().str[0],
                          (char *) thd->security_context()->host_or_ip().str);
 
+  // 初始化线程，准备执行语句
   prepare_new_connection_state(thd);
   return FALSE;
 }
